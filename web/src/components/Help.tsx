@@ -108,7 +108,7 @@ export function Help({ data, onClose }: { data: Dashboard; onClose: () => void }
           <Line swatch={RATING_COLOR.shit} text={`SHIT, BELOW ${meh}X: GREY AND CRACKED, WITH A SKULL; THREE SKULLS BELOW HALF OF THAT.`} />
           <Line text="PLAIN STRIPES: NOT RATED YET (THE ACCOUNT NEEDS 3 EARLIER POSTS). EARLY: YOUNGER THAN ITS PLATFORM'S ENGAGEMENT WINDOW, SO MOSTLY PROJECTION." color={C.gray} />
           <Line swatch={C.yellow} text="YELLOW RIPPLES AT THE BASE: POSTED IN THE LAST 48 HOURS." />
-          <Line text="HOVER A TOWER FOR THE POST, CLICK IT TO OPEN IT. DRAG TO SPIN, SCROLL OR PINCH TO ZOOM." color={C.gray} />
+          <Line text="CLICK A TOWER TO SHOW ITS POST, CLICK IT AGAIN TO OPEN IT; ESC OR A CLICK ON EMPTY SPACE CLOSES IT. DRAG TO SPIN, SCROLL OR PINCH TO ZOOM." color={C.gray} />
         </Section>
 
         <Section title="THE RING, THE STARS, THE PLANETS">

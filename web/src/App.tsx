@@ -483,7 +483,9 @@ export function App() {
   const [{ scope, days }, setView] = useState(readHash);
   const [scopes, setScopes] = useState<Scopes | null>(null);
   const [data, setData] = useState<Dashboard | null>(null);
-  const [hovered, setHovered] = useState<PostView | null>(null);
+  // The post on show: a click selects it, a second click opens it. Kept as an id so it follows
+  // fresh data and clears itself when the post is no longer in view.
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [collecting, setCollecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Each series is normal, solo or muted, like a mixing desk; remembered per browser.
@@ -532,6 +534,19 @@ export function App() {
     const solos = SERIES_KEYS.filter((k) => mix[k] === 'solo');
     return new Set(solos.length ? solos : SERIES_KEYS.filter((k) => mix[k] !== 'mute'));
   }, [mix]);
+
+  const selected = data?.posts.find((p) => p.id === selectedId && platformVisible(visible, p.platform)) ?? null;
+  const pick = (p: PostView) => {
+    if (p.id !== selectedId) setSelectedId(p.id);
+    else if (p.url) window.open(p.url, '_blank', 'noopener');
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedId(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Attract mode: starts after IDLE_SECONDS without input, or from the CINEMA button, and ends
   // on any key, click or scroll, or once the mouse really moves (a twitch doesn't count).
@@ -664,7 +679,7 @@ export function App() {
   return (
     <>
       <Backdrop momentum={t.momentum} />
-      <Scene data={data} onHover={setHovered} hovered={hovered} visible={visible} shot={shot} />
+      <Scene data={data} onPick={pick} onClear={() => setSelectedId(null)} selected={selected} visible={visible} shot={shot} />
       {help && <Help data={data} onClose={() => setHelp(false)} />}
       {shot && <CinemaOverlay shot={shot} step={shotIndex} index={shotIndex % shots.length} total={shots.length} scopeName={data.scope.name} data={data} visible={visible} />}
       <div className="scanlines" />
@@ -741,8 +756,17 @@ export function App() {
         <Tile kicker={`TOP POSTS ${days}D`}>
           <ol className="top-posts">
               {top.map((p, i) => (
-                <li key={p.id} onMouseEnter={() => setHovered(p)} onMouseLeave={() => setHovered(null)}>
-                  <a href={p.url ?? undefined} target="_blank" rel="noreferrer">
+                <li key={p.id} className={p.id === selectedId ? 'on' : ''}>
+                  <a
+                    href={p.url ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => {
+                      if (p.id === selectedId) return;
+                      e.preventDefault();
+                      setSelectedId(p.id);
+                    }}
+                  >
                     <PixelText text={String(i + 1)} px={2} color={C.gray} />
                     <span className="sw" style={{ background: PLATFORM_COLOR[p.platform] }} />
                     <PixelText text={(p.text ?? '').replace(/\s+/g, ' ').slice(0, 20)} px={2} />
@@ -755,9 +779,10 @@ export function App() {
           </ol>
         </Tile>
         )}
-        {hovered && (
+        {selected && (
           <Tile kicker="POST">
-            <PostCard post={hovered} />
+            <PostCard post={selected} />
+            <PixelText text={selected.url ? 'CLICK AGAIN TO OPEN, ESC TO CLOSE' : 'ESC TO CLOSE'} px={2} color={C.gray} />
           </Tile>
         )}
         {details && <ReachTile data={data} />}

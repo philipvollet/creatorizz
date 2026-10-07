@@ -94,6 +94,7 @@ ol, ul { list-style: none; margin: 0; padding: 0; }
 .top-posts { display: flex; flex-direction: column; gap: 9px; }
 .top-posts a { display: flex; align-items: center; gap: 10px; }
 .top-posts li:hover { outline: 1px dotted var(--green); outline-offset: 3px; }
+.top-posts li.on { outline: 1px solid var(--green); outline-offset: 3px; }
 .sw { width: 8px; height: 8px; flex: none; }
 
 .series { display: flex; flex-direction: column; gap: 7px; border-top: 2px dotted var(--gray); padding-top: 10px; }

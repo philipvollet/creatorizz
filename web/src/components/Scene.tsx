@@ -327,7 +327,7 @@ function Beacon({ color }: { color: string }) {
  * with skulls.
  * Posts from the last 48 hours also send out a beacon from their base.
  */
-function Tower({ post, angle, radius, height: h, onHover, active }: { post: PostView; angle: number; radius: number; height: number; onHover: (p: PostView | null) => void; active: boolean }) {
+function Tower({ post, angle, radius, height: h, onPick, active }: { post: PostView; angle: number; radius: number; height: number; onPick: (p: PostView) => void; active: boolean }) {
   const ref = useRef<THREE.Mesh>(null);
   const mat = useMemo(() => towerMaterial(PLATFORM_COLOR[post.platform], post.rating, h, (post.id * 0.618) % 1), [post.platform, post.rating, h, post.id]);
   useEffect(() => () => mat.dispose(), [mat]);
@@ -345,13 +345,18 @@ function Tower({ post, angle, radius, height: h, onHover, active }: { post: Post
       material={mat}
       position={[Math.cos(angle) * radius, h / 2, Math.sin(angle) * radius]}
       rotation={[0, -angle, 0]}
+      // Hovering only changes the cursor; a click selects (and a second click opens), so the post
+      // stays on screen while the mouse moves on to scroll or read it.
       onPointerOver={(e: ThreeEvent<PointerEvent>) => {
         e.stopPropagation();
-        onHover(post);
+        document.body.style.cursor = 'pointer';
       }}
-      onPointerOut={() => onHover(null)}
+      onPointerOut={() => {
+        document.body.style.cursor = '';
+      }}
       onClick={(e: ThreeEvent<MouseEvent>) => {
-        if (e.delta < 6 && post.url) window.open(post.url, '_blank', 'noopener');
+        e.stopPropagation();
+        if (e.delta < 6) onPick(post);
       }}
     >
       <boxGeometry args={[0.26, h, 0.26]} />
@@ -506,7 +511,7 @@ function Rig({ dragging, paused, zoom, shot, stops, focusY }: {
     const d = dragging.current!;
     const stage = scene.getObjectByName('stage');
     if (stage) {
-      // Hold still while a post is hovered (so it stays under the mouse) and during the tour.
+      // Hold still while a post is selected (so it stays where it was clicked) and during the tour.
       stage.rotation.y += d.active ? d.dx : paused || shot ? 0 : dt * 0.035;
       d.dx = 0;
     }
@@ -601,8 +606,8 @@ function Rig({ dragging, paused, zoom, shot, stops, focusY }: {
   return null;
 }
 
-export function Scene({ data, onHover, hovered, visible, shot = null }: { data: Dashboard; onHover: (p: PostView | null) => void; hovered: PostView | null; visible: Set<SeriesKey>; shot?: Shot | null }) {
-  const drag = useRef({ dx: 0, active: false, x: 0 });
+export function Scene({ data, onPick, onClear, selected, visible, shot = null }: { data: Dashboard; onPick: (p: PostView) => void; onClear: () => void; selected: PostView | null; visible: Set<SeriesKey>; shot?: Shot | null }) {
+  const drag = useRef({ dx: 0, active: false, x: 0, downX: 0, downY: 0 });
   // Camera distance multiplier: below 1 is closer. Wheel, trackpad pinch and two-finger pinch.
   const zoom = useRef(1);
   const touches = useRef(new Map<number, { x: number; y: number }>());
@@ -669,7 +674,8 @@ export function Scene({ data, onHover, hovered, visible, shot = null }: { data: 
       onPointerDown={(e) => {
         touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
         drag.current.active = touches.current.size === 1;
-        drag.current.x = e.clientX;
+        drag.current.x = drag.current.downX = e.clientX;
+        drag.current.downY = e.clientY;
         pinch.current = 0;
       }}
       onPointerMove={(e) => {
@@ -690,6 +696,10 @@ export function Scene({ data, onHover, hovered, visible, shot = null }: { data: 
         drag.current.active = false;
       }}
       onPointerCancel={(e) => touches.current.delete(e.pointerId)}
+      // A click on empty space (not the end of a drag) clears the selection.
+      onPointerMissed={(e) => {
+        if (Math.hypot(e.clientX - drag.current.downX, e.clientY - drag.current.downY) < 6) onClear();
+      }}
       onPointerLeave={(e) => {
         touches.current.delete(e.pointerId);
         drag.current.active = false;
@@ -698,7 +708,7 @@ export function Scene({ data, onHover, hovered, visible, shot = null }: { data: 
       <ambientLight intensity={1.6} />
       <directionalLight position={[5, 8, 4]} intensity={2.2} />
       <FrameCap />
-      <Rig dragging={drag} paused={hovered !== null} zoom={zoom} shot={shot} stops={stops} focusY={many ? 3.2 : 2.6} />
+      <Rig dragging={drag} paused={selected !== null} zoom={zoom} shot={shot} stops={stops} focusY={many ? 3.2 : 2.6} />
       {personas.map((p) => (
         <PersonaSystem key={p.id} name={p.name} avatar={p.avatar} moons={p.moons} position={p.position} growth={p.growth} scale={p.scale} />
       ))}
@@ -725,7 +735,7 @@ export function Scene({ data, onHover, hovered, visible, shot = null }: { data: 
               />
             ))}
         {placed.map((rp) => (
-          <Tower key={rp.post.id} post={rp.post} angle={rp.angle} radius={rp.radius} height={rp.height} onHover={onHover} active={hovered?.id === rp.post.id} />
+          <Tower key={rp.post.id} post={rp.post} angle={rp.angle} radius={rp.radius} height={rp.height} onPick={onPick} active={selected?.id === rp.post.id} />
         ))}
       </group>
     </Canvas>
