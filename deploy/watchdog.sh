@@ -37,7 +37,9 @@ rotate "$LOG"
 env_get() { grep -E "^$1=" "$APP_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2-; }
 HOST="$(env_get HOST)"; HOST="${HOST:-127.0.0.1}"
 PORT="$(env_get PORT)"; PORT="${PORT:-4410}"
-URL="http://$HOST:$PORT/api/health"
+# The app also listens on loopback when HOST is a network address (see server/index.ts), and a
+# NetBird peer in userspace mode cannot reach its own NetBird IP, so check over loopback.
+URL="http://127.0.0.1:$PORT/api/health"
 
 fails=0; last_ok_day=""; last_restart=0
 [[ -f "$STATE" ]] && source "$STATE"
@@ -69,9 +71,10 @@ if body="$(curl -fsS --max-time 10 "$URL" 2>&1)"; then
   exit 0
 fi
 
-# If the address to serve on is not on this machine (e.g. NetBird is down), restarting won't help.
+# If the address to serve on is not on this machine (e.g. NetBird is down), the app can't bind it
+# and launchd keeps retrying; restarting won't help.
 if [[ "$HOST" != "127.0.0.1" ]] && ! ifconfig | grep -q "inet $HOST "; then
-  log "health check failed but $HOST is not on any interface (NetBird down?); not restarting"
+  log "health check failed and $HOST is not on any interface (NetBird down?); not restarting"
   exit 0
 fi
 

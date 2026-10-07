@@ -97,7 +97,9 @@ sudo launchctl enable "system/$WD_LABEL"
 sleep 3
 PORT="$(grep -E '^PORT=' "$APP_DIR/.env" | cut -d= -f2 || true)"; PORT="${PORT:-4410}"
 HOST="$(grep -E '^HOST=' "$APP_DIR/.env" | cut -d= -f2 || true)"; HOST="${HOST:-127.0.0.1}"
-if curl -fsS "http://$HOST:$PORT/api/health" >/dev/null; then
+# Checked over loopback (the app also listens there); a NetBird peer in userspace mode cannot
+# reach its own NetBird IP.
+if curl -fsS --max-time 10 "http://127.0.0.1:$PORT/api/health" >/dev/null; then
   echo "creatorizz is running on http://$HOST:$PORT (watchdog log: $APP_DIR/data/watchdog.log)"
 else
   echo "creatorizz did not answer yet; see $APP_DIR/data/creatorizz.log"
