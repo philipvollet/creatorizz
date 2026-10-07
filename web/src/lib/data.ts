@@ -199,6 +199,13 @@ export interface Scopes {
   groups: { id: string; name: string; members: string[] }[];
 }
 
+export interface Health {
+  ok: boolean;
+  collecting: boolean;
+  lastCollectedAt: string | null;
+  startedAt: string;
+}
+
 export async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) {

@@ -4,13 +4,15 @@ import { extname, resolve, normalize } from 'node:path';
 import { AVATAR_DIR, db, ROOT } from './db.ts';
 import { hasConfig, syncConfig } from './config.ts';
 import { collect, isRunning, JOBS, type JobName } from './jobs.ts';
-import { dashboard, parseScope, personaIds, scopes } from './stats.ts';
+import { dashboard, lastCollectedAt, parseScope, personaIds, scopes } from './stats.ts';
 import { startScheduler } from './scheduler.ts';
 import { THUMB_DIR } from './thumbs.ts';
 
 const PORT = Number(process.env.PORT ?? 4410);
 const HOST = process.env.HOST ?? '127.0.0.1';
 const WEB_DIST = resolve(ROOT, 'web/dist');
+// Lets an open dashboard notice a restart (a new build or config) and reload itself.
+const STARTED_AT = new Date().toISOString();
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -46,7 +48,9 @@ db.exec("UPDATE run SET status = 'error', finished_at = started_at, note = 'inte
 const handler: RequestListener = async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://local');
   try {
-    if (url.pathname === '/api/health') return json(res, 200, { ok: true, collecting: isRunning() });
+    if (url.pathname === '/api/health') {
+      return json(res, 200, { ok: true, collecting: isRunning(), lastCollectedAt: lastCollectedAt(), startedAt: STARTED_AT });
+    }
     if (url.pathname === '/api/scopes') return json(res, 200, scopes());
     if ((url.pathname === '/api/dashboard' || url.pathname === '/api/scopes') && !hasConfig()) {
       return json(res, 503, { error: 'No one to track yet: add config.json (see the README).' });

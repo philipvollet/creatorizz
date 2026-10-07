@@ -12,10 +12,13 @@ import { peopleOf, reachOf } from './lib/reach.ts';
 import { IDLE_SECONDS, SHOT_SECONDS, buildShots, type Shot } from './lib/cinema.ts';
 import {
   C, PLATFORM_COLOR, PLATFORM_LABEL, RATING_COLOR, SERIES_COLOR, UNRATED_COLOR, ago, fmt, getJSON, periodChange, signed, trendColor,
-  SERIES_KEYS, platformText, platformVisible, type Dashboard, type RepoSummary, type Period, type PostView, type Scopes, type SeriesKey,
+  SERIES_KEYS, platformText, platformVisible, type Dashboard, type RepoSummary, type Period, type PostView, type Scopes, type SeriesKey, type Health,
 } from './lib/data.ts';
 
 const RANGES = [7, 30, 90];
+// How often an open dashboard checks for new data, and the longest it keeps data on screen.
+const CHECK_EVERY_MS = 60_000;
+const RELOAD_EVERY_MS = 3600_000;
 
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
@@ -611,9 +614,12 @@ export function App() {
     });
   };
 
+  // What the data on screen was loaded from, so the background check can tell when it's stale.
+  const loaded = useRef({ at: 0, lastCollectedAt: null as string | null });
   const load = useCallback(() => {
     getJSON<Dashboard>(`/api/dashboard?scope=${encodeURIComponent(scope)}&days=${days}`)
       .then((d) => {
+        loaded.current = { at: Date.now(), lastCollectedAt: d.lastCollectedAt };
         setData(d);
         setCollecting(d.collecting);
         setError(null);
@@ -633,7 +639,7 @@ export function App() {
   useEffect(() => {
     if (!collecting) return;
     const t = setInterval(async () => {
-      const h = await getJSON<{ collecting: boolean }>('/api/health').catch(() => ({ collecting: false }));
+      const h = await getJSON<Health>('/api/health').catch(() => ({ collecting: false }));
       if (!h.collecting) {
         setCollecting(false);
         load();
@@ -641,6 +647,32 @@ export function App() {
     }, 3000);
     return () => clearInterval(t);
   }, [collecting, load]);
+
+  // Left open (e.g. on a screen), keep up by itself: check once a minute and whenever the tab is
+  // shown again. A collection started elsewhere (the daily run, another viewer's REFRESH) shows as
+  // running and reloads when it ends; data that landed meanwhile reloads at once; and at least once
+  // an hour it reloads anyway, so the date range moves on. A restarted server (a new build or
+  // config) reloads the whole page.
+  useEffect(() => {
+    let startedAt: string | null = null;
+    const check = async () => {
+      const h = await getJSON<Health>('/api/health').catch(() => null);
+      if (!h) return;
+      if (startedAt && h.startedAt !== startedAt) return location.reload();
+      startedAt = h.startedAt;
+      if (h.collecting) setCollecting(true);
+      else if (loaded.current.at === 0) return; // the first load is still on its way
+      else if (h.lastCollectedAt !== loaded.current.lastCollectedAt || Date.now() - loaded.current.at > RELOAD_EVERY_MS) load();
+    };
+    const t = setInterval(check, CHECK_EVERY_MS);
+    const onVisible = () => document.visibilityState === 'visible' && check();
+    document.addEventListener('visibilitychange', onVisible);
+    check();
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [load]);
 
   const refresh = async () => {
     setCollecting(true);

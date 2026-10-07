@@ -415,7 +415,6 @@ export function dashboard(scope: Scope, rangeDays: number) {
   ]);
 
   const runs = db.prepare('SELECT job, started_at, finished_at, status, items, cost_usd, note FROM run ORDER BY id DESC LIMIT 12').all();
-  const lastDaily = db.prepare("SELECT max(started_at) AS t FROM run WHERE status = 'ok' AND job != 'daily'").get() as { t: string | null };
 
   return {
     scope: { ...scope, name: scopeName ?? scope.id },
@@ -448,7 +447,12 @@ export function dashboard(scope: Scope, rangeDays: number) {
       dailyAt: process.env.DAILY_AT ?? '07:00',
     },
     runs,
-    lastCollectedAt: lastDaily.t,
+    lastCollectedAt: lastCollectedAt(),
     collecting: isRunning(),
   };
+}
+
+/** When the newest successful collection job started; changes whenever new data has landed. */
+export function lastCollectedAt(): string | null {
+  return (db.prepare("SELECT max(started_at) AS t FROM run WHERE status = 'ok' AND job != 'daily'").get() as { t: string | null }).t;
 }
