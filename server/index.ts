@@ -1,4 +1,4 @@
-import { createServer, type ServerResponse } from 'node:http';
+import { createServer, type RequestListener, type ServerResponse } from 'node:http';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, resolve, normalize } from 'node:path';
 import { AVATAR_DIR, db, ROOT } from './db.ts';
@@ -43,7 +43,7 @@ syncConfig();
 // Only one server runs collections, so a run still marked running now was cut off by a restart.
 db.exec("UPDATE run SET status = 'error', finished_at = started_at, note = 'interrupted: server restarted mid-run' WHERE status = 'running'");
 
-createServer(async (req, res) => {
+const handler: RequestListener = async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://local');
   try {
     if (url.pathname === '/api/health') return json(res, 200, { ok: true, collecting: isRunning() });
@@ -74,7 +74,19 @@ createServer(async (req, res) => {
     console.error(e);
     json(res, 500, { error: String(e) });
   }
-}).listen(PORT, HOST, () => {
+};
+
+createServer(handler).listen(PORT, HOST, () => {
   console.log(`creatorizz on http://${HOST}:${PORT}`);
   startScheduler();
 });
+
+// When serving on a network address, also answer on loopback, so this machine can always reach
+// the app (a NetBird peer in userspace mode can't connect to its own NetBird IP) and the
+// watchdog's health check doesn't depend on the network being up. Loopback is not reachable
+// from other machines.
+if (HOST !== '127.0.0.1' && HOST !== 'localhost') {
+  createServer(handler)
+    .on('error', (e) => console.error(`[loopback] not listening on 127.0.0.1:${PORT}:`, e.message))
+    .listen(PORT, '127.0.0.1', () => console.log(`creatorizz also on http://127.0.0.1:${PORT}`));
+}

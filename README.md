@@ -142,6 +142,60 @@ The service is a LaunchDaemon: it starts at boot without anyone logged in, runs 
 who installed it, and restarts if it stops. Logs go to `data/creatorizz.log`.
 `./deploy/uninstall-macos.sh` removes it.
 
+If the macOS firewall is on, allow incoming connections to Node, or the dashboard is unreachable
+even from the Mac itself (a service never gets the "allow incoming connections?" prompt). Use
+Node's real path, and run it again after Node is upgraded, since the path changes:
+
+```bash
+NODE="$(readlink -f "$(command -v node)")"
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add "$NODE"
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp "$NODE"
+```
+
+### Watchdog and self-healing
+
+The installer also sets up `io.creatorizz.watchdog`, which runs `deploy/watchdog.sh` every five
+minutes as the same user. launchd already restarts the app if it exits, including a crash at
+boot when the address in `HOST` is not up yet (it retries every 30 seconds). The watchdog covers
+an app that is still running but no longer answers `/api/health`:
+
+- Two failed checks in a row (about 10 minutes): it stops the app's process (SIGTERM, then
+  SIGKILL after 10 seconds) and launchd starts a fresh one. It first copies the last 20 lines of
+  `data/creatorizz.log` into its own log.
+- It doesn't restart a process younger than two minutes, or more than once per 30 minutes, so
+  a cause outside the app (firewall, network) shows up in the log without a restart loop.
+- If `HOST` is not on any interface (for example, NetBird is down), it logs that and leaves the
+  app alone.
+- It keeps `data/creatorizz.log` and `data/watchdog.log` under 10 MB each (the previous one is
+  kept as `.1`).
+
+It runs as your user, not root, so it can't reload a service that was removed; for that, run
+`./deploy/install-macos.sh` again.
+
+### Debugging
+
+| What | Where |
+| --- | --- |
+| App log (startup, daily runs, backups, errors) | `data/creatorizz.log` |
+| Watchdog log (failed checks, restarts, one `ok` line a day) | `data/watchdog.log` |
+| Watchdog state (failed checks in a row, last restart) | `data/watchdog.state` |
+| Service definitions | `/Library/LaunchDaemons/io.creatorizz.plist`, `io.creatorizz.watchdog.plist` |
+
+```bash
+curl -s http://127.0.0.1:$PORT/api/health                 # {"ok":true,...}
+sudo launchctl print system/io.creatorizz | grep -E "state|pid|runs|last exit"
+sudo launchctl print system/io.creatorizz.watchdog | grep -E "state|runs|last exit"
+lsof -nP -iTCP:$PORT -sTCP:LISTEN                          # is it listening, and where?
+tail -50 data/creatorizz.log data/watchdog.log
+sudo launchctl kickstart -k system/io.creatorizz          # restart by hand
+```
+
+Common causes: on the Mac itself, a timeout on the NetBird IP is expected (use `127.0.0.1`);
+from another peer, listening but timing out means the firewall (above) or the private network's
+access rules; restarting every 30 seconds with `EADDRNOTAVAIL` means `HOST` is not this
+machine's address, or NetBird/Tailscale is down; `runs` climbing in `launchctl print` with
+watchdog restarts in its log means the app is hanging, and the copied log lines show where.
+
 Keep the Mac awake so the daily run happens, and have it start again after a power cut:
 
 ```bash
@@ -153,7 +207,10 @@ To update: `git pull && npm ci && npm run build && ./deploy/install-macos.sh`.
 ### Sharing it with your team
 
 Set `HOST` to the machine's address on a private network, such as its NetBird or Tailscale IP,
-and everyone on that network opens `http://<that address>:4410`. Access rules in the network
+and everyone on that network opens `http://<that address>:4410`. The app then also listens on
+`127.0.0.1`, which only the machine itself can reach: a NetBird peer in userspace mode can't
+connect to its own NetBird IP, so local checks (the installer, the watchdog, `curl` on the Mac)
+use loopback. Test the network address from another peer. Access rules in the network
 decide who can reach it; nothing is exposed to the internet.
 
 ## Development
