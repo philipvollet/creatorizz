@@ -14,11 +14,16 @@ export interface Scope {
   id: string;
 }
 
+/** People and companies still in config.json: those with at least one active account. */
+const TRACKED = 'EXISTS (SELECT 1 FROM account a WHERE a.persona_id = persona.id AND a.active = 1)';
+
 export function parseScope(s: string | null): Scope {
   const [kind, id] = (s ?? '').split(':');
   if ((kind === 'persona' || kind === 'group') && id) return { kind, id };
   const g = db.prepare('SELECT id FROM grp ORDER BY id LIMIT 1').get() as { id: string } | undefined;
-  return g ? { kind: 'group', id: g.id } : { kind: 'persona', id: (db.prepare('SELECT id FROM persona LIMIT 1').get() as { id: string }).id };
+  if (g) return { kind: 'group', id: g.id };
+  const p = db.prepare(`SELECT id FROM persona WHERE ${TRACKED} ORDER BY name LIMIT 1`).get() as { id: string } | undefined;
+  return { kind: 'persona', id: p?.id ?? '' };
 }
 
 export function personaIds(scope: Scope): string[] {
@@ -29,7 +34,7 @@ export function personaIds(scope: Scope): string[] {
 const avatarUrl = (file: string | null) => (file ? `/avatars/${file}` : null);
 
 export function scopes() {
-  const personas = db.prepare('SELECT * FROM persona ORDER BY name').all() as { id: string; name: string; kind: string }[];
+  const personas = db.prepare(`SELECT * FROM persona WHERE ${TRACKED} ORDER BY name`).all() as { id: string; name: string; kind: string }[];
   const groups = db.prepare('SELECT * FROM grp ORDER BY name').all() as { id: string; name: string }[];
   return {
     personas: personas.map((p) => ({ ...p, avatar: personaAvatar(p.id) })),
