@@ -57,11 +57,48 @@ sudo launchctl bootout "system/$LABEL" 2>/dev/null || true
 sudo launchctl bootstrap system "$PLIST"
 sudo launchctl enable "system/$LABEL"
 
+# Watchdog: every 5 minutes, restarts the app if it is running but not answering /api/health.
+WD_LABEL="$LABEL.watchdog"
+WD_PLIST="/Library/LaunchDaemons/$WD_LABEL.plist"
+chmod +x "$APP_DIR/deploy/watchdog.sh"
+TMP="$(mktemp)"
+cat > "$TMP" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$WD_LABEL</string>
+  <key>UserName</key><string>$RUN_AS</string>
+  <key>WorkingDirectory</key><string>$APP_DIR</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>$APP_DIR/deploy/watchdog.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>$HOME</string>
+    <key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartInterval</key><integer>300</integer>
+  <key>StandardOutPath</key><string>$APP_DIR/data/watchdog.log</string>
+  <key>StandardErrorPath</key><string>$APP_DIR/data/watchdog.log</string>
+</dict>
+</plist>
+PLIST
+sudo cp "$TMP" "$WD_PLIST"
+rm "$TMP"
+sudo chown root:wheel "$WD_PLIST"
+sudo chmod 644 "$WD_PLIST"
+sudo launchctl bootout "system/$WD_LABEL" 2>/dev/null || true
+sudo launchctl bootstrap system "$WD_PLIST"
+sudo launchctl enable "system/$WD_LABEL"
+
 sleep 3
 PORT="$(grep -E '^PORT=' "$APP_DIR/.env" | cut -d= -f2 || true)"; PORT="${PORT:-4410}"
 HOST="$(grep -E '^HOST=' "$APP_DIR/.env" | cut -d= -f2 || true)"; HOST="${HOST:-127.0.0.1}"
 if curl -fsS "http://$HOST:$PORT/api/health" >/dev/null; then
-  echo "creatorizz is running on http://$HOST:$PORT"
+  echo "creatorizz is running on http://$HOST:$PORT (watchdog log: $APP_DIR/data/watchdog.log)"
 else
   echo "creatorizz did not answer yet; see $APP_DIR/data/creatorizz.log"
 fi
