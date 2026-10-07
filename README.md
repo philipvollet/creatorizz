@@ -91,7 +91,7 @@ Rules of thumb:
 - For a subreddit, only posts by the usernames in `authors` are kept; everyone else's are never
   stored. Without `authors`, only the member count is tracked.
 - The config is read when the server starts: restart it after editing. Accounts removed from
-  the config stop being collected and disappear from the dashboard; their history is kept.
+  the config stop being collected and disappear from the dashboard (and a person or company with none left disappears from the picker); their history is kept.
 
 ## Collection
 
