@@ -57,42 +57,49 @@ sudo launchctl bootout "system/$LABEL" 2>/dev/null || true
 sudo launchctl bootstrap system "$PLIST"
 sudo launchctl enable "system/$LABEL"
 
-# Watchdog: every 5 minutes, restarts the app if it is running but not answering /api/health.
-WD_LABEL="$LABEL.watchdog"
-WD_PLIST="/Library/LaunchDaemons/$WD_LABEL.plist"
-chmod +x "$APP_DIR/deploy/watchdog.sh"
-TMP="$(mktemp)"
-cat > "$TMP" <<PLIST
+# A script launchd runs every <seconds> as the same user: periodic_job <label> <script> <seconds>
+periodic_job() {
+  local label="$1" script="$2" every="$3" plist="/Library/LaunchDaemons/$1.plist" log tmp
+  log="$APP_DIR/data/$(basename "$script" .sh).log"
+  chmod +x "$APP_DIR/$script"
+  tmp="$(mktemp)"
+  cat > "$tmp" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>$WD_LABEL</string>
+  <key>Label</key><string>$label</string>
   <key>UserName</key><string>$RUN_AS</string>
   <key>WorkingDirectory</key><string>$APP_DIR</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>$APP_DIR/deploy/watchdog.sh</string>
+    <string>$APP_DIR/$script</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key><string>$HOME</string>
-    <key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PATH</key><string>$(dirname "$NODE"):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
-  <key>StartInterval</key><integer>300</integer>
-  <key>StandardOutPath</key><string>$APP_DIR/data/watchdog.log</string>
-  <key>StandardErrorPath</key><string>$APP_DIR/data/watchdog.log</string>
+  <key>StartInterval</key><integer>$every</integer>
+  <key>StandardOutPath</key><string>$log</string>
+  <key>StandardErrorPath</key><string>$log</string>
 </dict>
 </plist>
 PLIST
-sudo cp "$TMP" "$WD_PLIST"
-rm "$TMP"
-sudo chown root:wheel "$WD_PLIST"
-sudo chmod 644 "$WD_PLIST"
-sudo launchctl bootout "system/$WD_LABEL" 2>/dev/null || true
-sudo launchctl bootstrap system "$WD_PLIST"
-sudo launchctl enable "system/$WD_LABEL"
+  sudo cp "$tmp" "$plist"
+  rm "$tmp"
+  sudo chown root:wheel "$plist"
+  sudo chmod 644 "$plist"
+  sudo launchctl bootout "system/$label" 2>/dev/null || true
+  sudo launchctl bootstrap system "$plist"
+  sudo launchctl enable "system/$label"
+}
+
+# Watchdog: every 5 minutes, restarts the app if it is running but not answering /api/health.
+periodic_job "$LABEL.watchdog" deploy/watchdog.sh 300
+# Auto-update: every minute, follows the tracked branch when AUTO_UPDATE=on in .env (off otherwise).
+periodic_job "$LABEL.autoupdate" deploy/autoupdate.sh 60
 
 sleep 3
 PORT="$(grep -E '^PORT=' "$APP_DIR/.env" | cut -d= -f2 || true)"; PORT="${PORT:-4410}"
@@ -100,7 +107,7 @@ HOST="$(grep -E '^HOST=' "$APP_DIR/.env" | cut -d= -f2 || true)"; HOST="${HOST:-
 # Checked over loopback (the app also listens there); a NetBird peer in userspace mode cannot
 # reach its own NetBird IP.
 if curl -fsS --max-time 10 "http://127.0.0.1:$PORT/api/health" >/dev/null; then
-  echo "creatorizz is running on http://$HOST:$PORT (watchdog log: $APP_DIR/data/watchdog.log)"
+  echo "creatorizz is running on http://$HOST:$PORT (logs in $APP_DIR/data/)"
 else
   echo "creatorizz did not answer yet; see $APP_DIR/data/creatorizz.log"
 fi

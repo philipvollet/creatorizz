@@ -172,6 +172,26 @@ an app that is still running but no longer answers `/api/health`:
 It runs as your user, not root, so it can't reload a service that was removed; for that, run
 `./deploy/install-macos.sh` again.
 
+### Auto-update
+
+The installer also sets up `io.creatorizz.autoupdate`, which keeps the app in step with the git
+branch its folder tracks (usually `main`). It's off until `.env` has `AUTO_UPDATE=on`. The
+setting is read on every run, so switching it on or off needs no reinstall. Once a minute it asks
+the remote for that branch's latest commit; that's a single small request, with no webhook and nothing
+reachable from the internet. When there's a new commit, it:
+
+- waits while a collection is running, so a restart doesn't cut it short;
+- fast-forwards only, and leaves the folder alone if tracked files were changed by hand (`git
+  status`) or the remote history was rewritten;
+- runs `npm ci` and `npm run check` (lint, tests, build), then restarts the app; open dashboards
+  reload themselves within a minute;
+- if anything fails, goes back to the previous commit, rebuilds it, keeps the running app as it is,
+  and skips that commit until a newer one arrives.
+
+Every update, failure and rollback goes to `data/autoupdate.log`, with the output of the last
+attempt in `data/autoupdate.last-output`. A change to the install scripts is applied only when
+`./deploy/install-macos.sh` is run again (it needs sudo), and the log says so.
+
 ### Debugging
 
 | What | Where |
@@ -179,12 +199,14 @@ It runs as your user, not root, so it can't reload a service that was removed; f
 | App log (startup, daily runs, backups, errors) | `data/creatorizz.log` |
 | Watchdog log (failed checks, restarts, one `ok` line a day) | `data/watchdog.log` |
 | Watchdog state (failed checks in a row, last restart) | `data/watchdog.state` |
-| Service definitions | `/Library/LaunchDaemons/io.creatorizz.plist`, `io.creatorizz.watchdog.plist` |
+| Auto-update log (updates, failed checks, rollbacks) | `data/autoupdate.log`, last attempt's output in `data/autoupdate.last-output` |
+| Service definitions | `/Library/LaunchDaemons/io.creatorizz.plist`, `io.creatorizz.watchdog.plist`, `io.creatorizz.autoupdate.plist` |
 
 ```bash
 curl -s http://127.0.0.1:$PORT/api/health                 # {"ok":true,...}
 sudo launchctl print system/io.creatorizz | grep -E "state|pid|runs|last exit"
 sudo launchctl print system/io.creatorizz.watchdog | grep -E "state|runs|last exit"
+sudo launchctl print system/io.creatorizz.autoupdate | grep -E "state|runs|last exit"
 lsof -nP -iTCP:$PORT -sTCP:LISTEN                          # is it listening, and where?
 tail -50 data/creatorizz.log data/watchdog.log
 sudo launchctl kickstart -k system/io.creatorizz          # restart by hand
@@ -202,7 +224,8 @@ Keep the Mac awake so the daily run happens, and have it start again after a pow
 sudo pmset -a sleep 0 disksleep 0 autorestart 1
 ```
 
-To update: `git pull && npm ci && npm run build && ./deploy/install-macos.sh`.
+To update by hand: `git pull && npm ci && npm run build && ./deploy/install-macos.sh`, or let
+[auto-update](#auto-update) do it.
 
 ### Sharing it with your team
 
